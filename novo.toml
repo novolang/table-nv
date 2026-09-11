@@ -1,0 +1,61 @@
+[package]
+name        = "table-nv"
+version     = "0.0.1"
+description = "Text tables that line up: columns sized against unicode-nv's display widths so CJK and emoji are counted in cells rather than in codepoints, ANSI colour that costs no width, cells wrapped through textwrap-nv, width constraints as values a caller composes, border presets from ASCII to markdown, and a render into a caller's buffer.  Interface only — every body is a todo()."
+license     = "Apache-2.0"
+
+# An INTERFACE release: every `pub fn` body is a `todo()`, so the
+# signatures and the effect rows are published and nothing is
+# implemented.  `novo pkg publish` recognises the shape and requires
+# both the draft stability and the 0.0.x version; the first
+# implementation is the 0.1.0 published over it.
+stability   = "draft"
+
+# `core`, and the absence a reader should check for is the terminal.
+# There is none: a table is measured against a width the CALLER passes
+# in, and rendered into a buffer the caller owns.  Asking the terminal
+# how wide it is takes `[io]`, and it is the program's question rather
+# than the library's — which is also what lets the same table render
+# into a file, a web page and a test fixture.
+#
+# No device claim.  Every value here is a list — of rows, of cells, of
+# lines — and a table built without a heap is not a table; `numfmt-nv`
+# and `template-nv` are the packages a firmware formats a column with.
+layer       = "core"
+
+category    = "tooling"
+
+tags        = ["table", "ascii-table", "terminal", "cli", "unicode-width", "tabled", "rich"]
+repository  = "https://github.com/novolang/table-nv"
+maintainers = ["novo-lang"]
+novo        = ">= 0.8.9"
+
+# A library: no `main`, so `novo pkg build` type-checks and
+# effect-checks every module under `src/` and writes no binary.
+
+[docs.pages]
+"README.md" = "Columns that line up, in cells rather than in codepoints"
+
+[dependencies]
+# Three `core` dependencies, and each one is a table that should exist
+# once on this registry rather than three times.
+#
+# unicode-nv is the width. A column sized by `str.len` is a column that
+# is wrong for every CJK string, every emoji and every combining mark,
+# and the rule is UAX #11 plus the emoji presentation data — a data
+# table nobody should transcribe twice.
+#
+# textwrap-nv is the wrap inside a cell, and this package is the
+# consumer its own manifest anticipates: its `WrapWidth` is one
+# function from a codepoint to a column count, and `tblwidth.rule()`
+# builds one out of unicode-nv's `char_width`. No signature in either
+# package changes for that to work.
+#
+# ansi-nv is the escape scan. A coloured cell is longer in bytes than
+# it is in cells, and a table that counted the escapes would indent
+# every row after the first one; `vtparse` is the state machine that
+# tells the two apart, and writing a second one here would be writing a
+# second one wrongly.
+unicode-nv  = "^0.0.1"
+textwrap-nv = "^0.0.1"
+ansi-nv     = "^0.0.1"

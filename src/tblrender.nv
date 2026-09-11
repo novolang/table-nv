@@ -1,0 +1,162 @@
+// tblrender.nv — the table as lines.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// A LIBRARY DOES NOT PRINT. Every call here returns text or writes
+// into a buffer the caller owns. That is `docs/publishing.md`'s
+// convention and it is also the only arrangement that works: the same
+// table goes to a terminal, a log file, a markdown document and a test
+// assertion, and a package that had decided for the program where its
+// output goes could do one of the four.
+//
+// LINE BY LINE IS THE SHAPE THAT MATTERS. `render_lines` answers a
+// list and `render_line` answers one by index, because a long table
+// belongs in a pager and a pager wants line 400 without the 399 before
+// it. A full-screen program redrawing a scrolled table asks for the
+// twenty lines it can see; a `novo pkg search` asks for all of them.
+// `render` is the convenience over the first, and the one to avoid for
+// a table of ten thousand rows.
+//
+// THE SOLVE IS SEPARATE AND IT IS PASSED IN. Rendering takes a
+// `TableSolved` rather than computing one, so a caller that renders
+// the same table twice — once to measure, once to draw — solves once,
+// and so that a caller can adjust a solved width before drawing. It is
+// also what makes `render_line` cheap: the widths are already known,
+// so line 400 does not need the other 399 measured.
+//
+// AND THE ROWS ARE WHAT THE CALLER BUILT. Nothing here reformats a
+// number, re-escapes a string or reorders anything. A cell's text goes
+// out as it came in, padded and possibly wrapped, with its ANSI
+// escapes intact and its width counted without them.
+
+use tblmodel
+use tblstyle
+use tblwidth
+use widths
+
+// The whole table as one string, with `"\n"` between lines and none at
+// the end.
+//
+// The convenience call. A table of ten thousand rows should use
+// `render_lines` or `render_into` instead, because this one builds the
+// whole document before the caller sees a byte of it.
+//
+// ```novo
+// use tblmodel
+// use tblrender
+// use tblwidth
+//
+// fn main() [io]
+//     let t = tblmodel.with_headers(["name", "size"])
+//     match tblwidth.solve_natural(t, tblwidth.rule())
+//         Ok(solved) => println(tblrender.render(t, solved, tblwidth.rule()))
+//         Err(_)     => println("cannot be laid out")
+// ```
+pub fn render(t: tblmodel.Table, solved: tblwidth.TableSolved, w: widths.WrapWidth) -> Str []
+    todo("table-nv.tblrender.render")
+
+// Every line of the table, top rule to bottom rule, with no line
+// endings on them.
+//
+// The caller joins with whatever its output wants, which is the reason
+// the endings are not here: `"\n"` on a terminal, `"\r\n"` in a
+// protocol, and a list of spans in a full-screen program that never
+// joins them at all.
+pub fn render_lines(t: tblmodel.Table, solved: tblwidth.TableSolved,
+                    w: widths.WrapWidth) -> [Str] []
+    todo("table-nv.tblrender.render_lines")
+
+// One line by index, counting from zero at the top rule.
+//
+// What a pager and a full-screen redraw ask for. An index past the end
+// answers `?` rather than an empty string, so a caller looping until
+// `?` has a terminator and a caller asking for a specific line can
+// tell "past the end" from "a blank row".
+pub fn render_line(t: tblmodel.Table, solved: tblwidth.TableSolved, index: Int,
+                   w: widths.WrapWidth) -> ?Str []
+    todo("table-nv.tblrender.render_line")
+
+// How many lines the render will produce.
+//
+// `tblwidth.total_height`, published here too because a caller holding
+// a renderer should not have to reach into the width module to find
+// out how many times to call `render_line`.
+pub fn line_count(t: tblmodel.Table, solved: tblwidth.TableSolved, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblrender.line_count")
+
+// Render into a buffer the caller owns, answering the written prefix.
+//
+// The `core` shape, and the one a program that redraws a table sixty
+// times a second wants: one buffer, reused, and no allocation per
+// frame. A buffer too short is a short write rather than a panic, and
+// `render_len` is how a caller sizes it.
+pub fn render_into(out: [u8], t: tblmodel.Table, solved: tblwidth.TableSolved,
+                   w: widths.WrapWidth) -> [u8] []
+    todo("table-nv.tblrender.render_into")
+
+// How many bytes `render_into` will write.
+//
+// Bytes, not cells: a table eighty cells wide with CJK in it is more
+// than eighty bytes per line, and a buffer sized in cells would be
+// short exactly when the content is interesting.
+pub fn render_len(t: tblmodel.Table, solved: tblwidth.TableSolved, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblrender.render_len")
+
+// The top rule, as a line.
+//
+// Published separately because a caller drawing a table into a
+// full-screen layout draws its own frame and wants the rules without
+// the rest — and because a table continued across two pages needs its
+// header and its rules repeated.
+pub fn top_rule(s: tblstyle.TableStyle, solved: tblwidth.TableSolved) -> Str []
+    todo("table-nv.tblrender.top_rule")
+
+// The rule between the header and the body.
+//
+// For a markdown style this is the line carrying the alignments, which
+// is why it takes the table rather than only the style.
+pub fn header_rule(t: tblmodel.Table, solved: tblwidth.TableSolved) -> Str []
+    todo("table-nv.tblrender.header_rule")
+
+// The rule between two content rows.
+pub fn mid_rule(s: tblstyle.TableStyle, solved: tblwidth.TableSolved) -> Str []
+    todo("table-nv.tblrender.mid_rule")
+
+// The bottom rule, or `""` for a style that draws none.
+pub fn bottom_rule(s: tblstyle.TableStyle, solved: tblwidth.TableSolved) -> Str []
+    todo("table-nv.tblrender.bottom_rule")
+
+// One content row, as the lines it occupies.
+//
+// More than one when a cell wrapped. The vertical alignment decides
+// where a shorter cell sits in a taller row, and it is the table's
+// rather than the row's because a table whose rows aligned differently
+// would be a table nobody could read.
+pub fn render_row(t: tblmodel.Table, row: Int, solved: tblwidth.TableSolved,
+                  w: widths.WrapWidth) -> [Str] []
+    todo("table-nv.tblrender.render_row")
+
+// The header, as the lines it occupies.
+pub fn render_header(t: tblmodel.Table, solved: tblwidth.TableSolved,
+                     w: widths.WrapWidth) -> [Str] []
+    todo("table-nv.tblrender.render_header")
+
+// One cell's text, padded and truncated to a solved width under the
+// effective alignment.
+//
+// The innermost call, published because a caller drawing its own
+// layout out of this package's parts needs exactly it, and because a
+// test of the padding rules should not have to build a table.
+pub fn render_cell(c: tblmodel.TableCell, column: tblmodel.TableColumn, columns: Int,
+                   s: tblstyle.TableStyle, w: widths.WrapWidth) -> Str []
+    todo("table-nv.tblrender.render_cell")
+
+// The alignment a cell will actually be drawn under.
+//
+// The cell's own where it has one, otherwise the column's, with
+// `TableCellNumber` and `TableCellTime` defaulting to the right. The
+// rule is one function so that a caller laying out something beside
+// the table agrees with it.
+pub fn effective_align(c: tblmodel.TableCell,
+                       column: tblmodel.TableColumn) -> tblmodel.TableAlign []
+    todo("table-nv.tblrender.effective_align")

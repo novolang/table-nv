@@ -1,0 +1,218 @@
+// tblwidth.nv — how wide a cell is, and how wide a column should be.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// COLUMNS ARE COUNTED IN CELLS, NOT IN BYTES AND NOT IN CODEPOINTS,
+// and that is what this whole package is for. `str.len` of `"世界"` is
+// six; its codepoint count is two; a terminal gives it FOUR cells. A
+// table sized by either of the first two has a column that is wrong
+// for every CJK string, every emoji and every combining mark — and the
+// wrongness is not subtle, it is a row that does not line up with the
+// one above it.
+//
+// THE WIDTH IS unicode-nv's. UAX #11's East Asian Width for the wide
+// forms, the Mn/Me/Cf categories for the zero-width ones, and the
+// emoji presentation rules for the sequences that join — a data table
+// nobody should transcribe twice. `rule()` is a `widths.WrapWidth`
+// built from `uwidth.char_width`, which is the composition textwrap-nv
+// already anticipated: its own manifest says the width arrives as a
+// rule the caller supplies, and this package is that caller.
+//
+// AN ANSI ESCAPE COSTS NO WIDTH, and this is the second thing every
+// naive table gets wrong. `"\e[31mERR\e[0m"` is fourteen bytes, three
+// cells and one word, and a table that measured the bytes would indent
+// every subsequent column by eleven. `measure` feeds the text through
+// ansi-nv's `vtparse` and counts only what the parser reports as
+// printable — which also means an escape a terminal would not render
+// costs nothing here either, and a cell carrying a half-finished
+// sequence measures what it will actually occupy.
+//
+// THE SOLVER IS AN ALLOCATION, NOT A CONSTRAINT SYSTEM. Fixed columns
+// take what they ask for; minimums are met; percentages are computed
+// against the total; what is left is shared among the automatic
+// columns in proportion to their natural widths, with the remainder
+// given to the widest. That is comfy-table's arrangement and tabulate's
+// and it is deliberately not more clever: a solver that could not be
+// predicted by reading it is a solver whose output nobody can explain
+// when a column comes out narrow.
+//
+// AND IT CAN REFUSE. `TableTooNarrow` names what the fixed and minimum
+// columns plus the borders already need and what the caller offered.
+// Squeezing a column to zero is the alternative, and a zero-wide
+// column renders as a stack of ellipses that tells a reader nothing.
+
+use tblmodel
+use widths
+
+// A column's solved width, in cells, not counting padding or rules.
+pub struct TableSolved
+    // One entry per column of the table, hidden ones included and
+    // solved to zero.
+    columns: [Int]
+    // What the whole table will occupy, padding, rules and outer frame
+    // included. The number a caller compares against its terminal.
+    total: Int
+    // Whether every constraint was met exactly. `false` means a
+    // maximum was exceeded because a minimum elsewhere left no choice
+    // — which is a thing a caller may want to report and never a
+    // reason to refuse.
+    exact: Bool
+
+// The display-width rule this package measures with: unicode-nv's.
+//
+// A `widths.WrapWidth` whose `of_char` is `uwidth.char_width`, so
+// textwrap-nv wraps against the same table this module measures
+// against. Two rules would be two answers, and a cell wrapped by one
+// and measured by the other is a cell that overflows its column.
+//
+// ```novo
+// use tblwidth
+//
+// fn main() [io]
+//     println(str.from_int(tblwidth.measure("世界", tblwidth.rule())))
+// ```
+pub fn rule() -> widths.WrapWidth []
+    todo("table-nv.tblwidth.rule")
+
+// The same rule with the Unicode Ambiguous class counted as two cells.
+//
+// For a terminal the user has configured East Asian, which is a
+// start-up decision and never changes mid-line. unicode-nv's
+// `char_width_cjk` is the function behind it.
+pub fn rule_cjk() -> widths.WrapWidth []
+    todo("table-nv.tblwidth.rule_cjk")
+
+// How many cells a string occupies, with ANSI escapes costing nothing.
+//
+// The call everything else in this module is built on. Escapes are
+// recognised by ansi-nv's parser rather than by a regular expression,
+// so an OSC string with a semicolon in it, a CSI with intermediates
+// and a bare `ESC` are all measured as what a terminal would show.
+pub fn measure(text: Str, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.measure")
+
+// The same, without the escape scan.
+//
+// For text a caller knows carries none, which is most text. Published
+// because the scan is the expensive half and a table of ten thousand
+// plain rows should not pay for it.
+pub fn measure_plain(text: Str, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.measure_plain")
+
+// Whether the text carries an ANSI escape at all.
+//
+// The test `measure` makes first, and the one a caller makes to decide
+// which of the two measures to use.
+pub fn has_escapes(text: Str) -> Bool []
+    todo("table-nv.tblwidth.has_escapes")
+
+// The text with every ANSI escape removed.
+//
+// What an export writes: a CSV cell carrying a colour escape is a CSV
+// cell that breaks whatever reads it. `tblexport` calls this on every
+// cell, and it is public because a caller writing to a file it opened
+// itself needs the same thing.
+pub fn strip_escapes(text: Str) -> Str []
+    todo("table-nv.tblwidth.strip_escapes")
+
+// The byte offset one past the longest prefix of `text` that fits in
+// `columns` cells, escapes not counted.
+//
+// A byte offset rather than a substring, so a caller that is going to
+// re-add a reset sequence knows where to cut. Never splits a grapheme
+// cluster: a family emoji is two cells or none, and half of one is a
+// replacement character on the screen.
+pub fn fit_prefix(text: Str, columns: Int, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.fit_prefix")
+
+// The text truncated to `columns` cells with the ellipsis appended,
+// and every open escape closed.
+//
+// The closing is the part a caller would forget: cutting
+// `"\e[31mERROR"` at three cells leaves the terminal red for the rest
+// of the line, and every row after it. The reset is appended whenever
+// the prefix opened a style the cut discarded.
+pub fn truncate(text: Str, columns: Int, w: widths.WrapWidth, ellipsis: Str) -> Str []
+    todo("table-nv.tblwidth.truncate")
+
+// The text padded to `columns` cells under an alignment.
+//
+// Pads with spaces, counts in cells, and adds nothing when the text is
+// already that wide or wider — a pad never truncates, because the two
+// decisions have different callers and merging them is how a column
+// silently loses content.
+pub fn pad(text: Str, columns: Int, w: widths.WrapWidth, align: tblmodel.TableAlign) -> Str []
+    todo("table-nv.tblwidth.pad")
+
+// The text wrapped to `columns` cells, as lines.
+//
+// textwrap-nv's `wrap` with this module's rule, and the escape
+// handling on top: a style opened on one line is re-opened at the
+// start of the next and closed at the end of each, so a wrapped
+// coloured cell is coloured on every line rather than on the first.
+pub fn wrap_cell(text: Str, columns: Int, w: widths.WrapWidth) -> [Str] []
+    todo("table-nv.tblwidth.wrap_cell")
+
+// How many lines a cell needs at a given width.
+//
+// What the row-height calculation sums over, and cheaper than wrapping
+// and counting because it never builds the lines.
+pub fn cell_height(text: Str, columns: Int, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.cell_height")
+
+// The natural width of a column: the widest cell in it, header
+// included, with no constraint applied.
+//
+// The number the solver starts from, and the one a caller wants when
+// it is laying out something else beside the table.
+pub fn natural_width(t: tblmodel.Table, column: Int, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.natural_width")
+
+// The narrowest a column can be without truncating a word: the widest
+// single word in it.
+//
+// The floor the solver will not go below for a wrapping column,
+// because a column narrower than its longest word wraps every row
+// mid-word and reads as noise.
+pub fn minimum_width(t: tblmodel.Table, column: Int, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.minimum_width")
+
+// Solve the column widths for a total the caller passes in.
+//
+// THE TOTAL IS AN ARGUMENT AND NOT A TERMINAL QUERY. Asking the
+// terminal how wide it is takes `[io]`, it is the program's question
+// rather than the library's, and it is what lets the same table be
+// solved for a file, a web page and a test fixture. A caller with no
+// opinion passes `0`, which means "as wide as the content wants".
+pub fn solve(t: tblmodel.Table, total_columns: Int,
+             w: widths.WrapWidth) -> Result<TableSolved, tblmodel.TableError> []
+    todo("table-nv.tblwidth.solve")
+
+// Solve for the content's natural width, with no total at all.
+//
+// `solve(t, 0, w)`, named because it is what most callers want and
+// because a zero passed positionally reads like a mistake.
+pub fn solve_natural(t: tblmodel.Table,
+                     w: widths.WrapWidth) -> Result<TableSolved, tblmodel.TableError> []
+    todo("table-nv.tblwidth.solve_natural")
+
+// The narrowest total this table can be solved for.
+//
+// The minimums plus the fixed widths plus the style's overhead. What
+// `TableTooNarrow` carries as `needed`, and what a caller compares
+// against its terminal before it tries.
+pub fn minimum_total(t: tblmodel.Table, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.minimum_total")
+
+// How many lines a row will occupy at these solved widths.
+//
+// The tallest of its cells. One for a table nothing wraps in, which is
+// the common case and the fast path.
+pub fn row_height(t: tblmodel.Table, row: Int, solved: TableSolved, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.row_height")
+
+// How many lines the whole table will occupy, rules included.
+//
+// What a pager needs before it decides whether to page.
+pub fn total_height(t: tblmodel.Table, solved: TableSolved, w: widths.WrapWidth) -> Int []
+    todo("table-nv.tblwidth.total_height")

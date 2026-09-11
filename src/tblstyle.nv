@@ -1,0 +1,193 @@
+// tblstyle.nv — the lines between the cells.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// A BORDER IS ELEVEN CHARACTERS AND FOUR FLAGS, and saying so is the
+// whole of this module. Every table anybody draws — an ASCII box, a
+// Unicode box, a markdown table, a bare column listing — is the same
+// layout with a different set of glyphs and a different answer to
+// "which rules are drawn". So a preset is a VALUE, a caller can build
+// one, and nothing downstream branches on which it is.
+//
+// THE PRESETS ARE THE ONES PEOPLE ACTUALLY WANT. ASCII for a log file
+// and a terminal that predates UTF-8; Unicode box drawing for a modern
+// one; markdown for a README, which is a real output format with its
+// own escaping rules rather than a decoration; and none at all, which
+// is what a listing wants — `ls -l` is a table with no borders and it
+// is the commonest table there is.
+//
+// MARKDOWN IS NOT A BORDER PRESET DRESSED UP. It has three rules that
+// the others do not: the header separator row carries the ALIGNMENT
+// (`:---`, `---:`, `:---:`), a `|` inside a cell must be escaped, and
+// there is no bottom rule at all. `markdown()` sets them, and
+// `tblrender` reads `escape_pipes` and `align_in_rule` rather than
+// asking which preset it was handed.
+//
+// PADDING IS PART OF THE WIDTH AND THE SOLVER KNOWS IT. A column
+// solved to eight cells inside a border with one space of padding on
+// each side occupies ten. Getting that wrong is how a table comes out
+// one character wider than the terminal and wraps every line, which is
+// the single most common bug in this kind of package.
+
+// The glyphs a table is drawn with.
+//
+// Named for position rather than for appearance, so that a caller
+// building a preset does not have to work out which corner is which:
+// `top_left` is the top left, whatever glyph it holds.
+pub struct TableBorder
+    top_left: Str
+    top_mid: Str
+    top_right: Str
+    left_mid: Str
+    cross: Str
+    right_mid: Str
+    bottom_left: Str
+    bottom_mid: Str
+    bottom_right: Str
+    horizontal: Str
+    vertical: Str
+
+// A whole visual style: the glyphs, which rules are drawn, and the
+// padding.
+pub struct TableStyle
+    border: TableBorder
+    // Whether the outer frame is drawn at all. `false` with a border
+    // that has glyphs is a table with internal rules and no box, which
+    // is what a lot of terminal output wants.
+    outer: Bool
+    // Whether a rule is drawn between every pair of content rows.
+    // `false` — the default — draws one under the header only, which
+    // is what makes a table of thirty rows readable.
+    rules_between_rows: Bool
+    // Whether a vertical rule is drawn between columns.
+    columns_separated: Bool
+    // Cells of space on each side of a cell's content, inside the
+    // rules. One is the usual answer; zero is what markdown and a bare
+    // listing want.
+    pad_left: Int
+    pad_right: Int
+    // What an empty cell renders as. `"-"` is the usual choice and
+    // `""` makes an empty cell and a missing one look the same, which
+    // is why this is a value rather than a constant.
+    empty: Str
+    // What a truncated cell ends with, when a column does not wrap and
+    // the content does not fit. `"…"` is one cell wide; `"..."` is
+    // three, and `tblwidth` counts whichever this holds.
+    ellipsis: Str
+    // Whether a `|` inside a cell is escaped. Markdown's rule, and
+    // nobody else's.
+    escape_pipes: Bool
+    // Whether the header's rule carries the column alignments.
+    // Markdown's `:---:`, and nobody else's.
+    align_in_rule: Bool
+
+// ASCII: `+`, `-` and `|`, and nothing above codepoint 127.
+//
+// The safe default. A log file, a terminal with an unknown encoding,
+// a paste into a system that mangles UTF-8.
+//
+// ```novo
+// use tblstyle
+//
+// fn main() [io]
+//     println(tblstyle.ascii().border.cross)
+// ```
+pub fn ascii() -> TableStyle []
+    todo("table-nv.tblstyle.ascii")
+
+// Unicode box drawing: `┌`, `─`, `│`, `┼`.
+//
+// Every glyph is one cell wide under UAX #11, which is the reason this
+// preset is safe and a preset built from block elements would not be.
+pub fn unicode_box() -> TableStyle []
+    todo("table-nv.tblstyle.unicode_box")
+
+// Unicode box drawing with rounded corners: `╭`, `╰`.
+//
+// The same widths, a softer look, and the one people ask for by name.
+pub fn rounded() -> TableStyle []
+    todo("table-nv.tblstyle.rounded")
+
+// Heavy Unicode box drawing: `┏`, `━`, `┃`.
+//
+// For a table that has to stand out beside others. Still one cell per
+// glyph.
+pub fn heavy() -> TableStyle []
+    todo("table-nv.tblstyle.heavy")
+
+// Markdown: pipes, a header rule that carries the alignments, no outer
+// frame and no bottom rule.
+//
+// A real output format rather than a decoration, and the three rules
+// that make it one are fields rather than a branch in the renderer.
+pub fn markdown() -> TableStyle []
+    todo("table-nv.tblstyle.markdown")
+
+// No borders at all: columns separated by the padding and nothing
+// else.
+//
+// What a listing wants. `ls -l` is a table with this style, and so is
+// most of what a command-line program prints.
+pub fn plain() -> TableStyle []
+    todo("table-nv.tblstyle.plain")
+
+// No borders, and a rule under the header.
+//
+// The style most `--help` output and most package listings want: the
+// header is visibly a header and nothing else is drawn.
+pub fn header_rule() -> TableStyle []
+    todo("table-nv.tblstyle.header_rule")
+
+// A style with its padding replaced.
+pub fn padded(s: TableStyle, left: Int, right: Int) -> TableStyle []
+    todo("table-nv.tblstyle.padded")
+
+// A style with the between-rows rules turned on or off.
+pub fn with_row_rules(s: TableStyle, on: Bool) -> TableStyle []
+    todo("table-nv.tblstyle.with_row_rules")
+
+// A style with the outer frame turned on or off.
+pub fn with_outer(s: TableStyle, on: Bool) -> TableStyle []
+    todo("table-nv.tblstyle.with_outer")
+
+// A style with its empty-cell placeholder replaced.
+pub fn with_empty(s: TableStyle, text: Str) -> TableStyle []
+    todo("table-nv.tblstyle.with_empty")
+
+// A style with its ellipsis replaced.
+pub fn with_ellipsis(s: TableStyle, text: Str) -> TableStyle []
+    todo("table-nv.tblstyle.with_ellipsis")
+
+// A border built from the eleven glyphs, for a preset a caller wants
+// that is not here.
+pub fn border(top_left: Str, top_mid: Str, top_right: Str, left_mid: Str, cross: Str,
+              right_mid: Str, bottom_left: Str, bottom_mid: Str, bottom_right: Str, horizontal: Str,
+              vertical: Str) -> TableBorder []
+    todo("table-nv.tblstyle.border")
+
+// How many cells the style spends per column on padding and rules.
+//
+// The number the width solver subtracts before it has anything to
+// distribute, and the reason a table comes out one character too wide
+// when somebody computes it by hand. Public because a caller sizing a
+// layout around a table needs the same number.
+pub fn overhead_per_column(s: TableStyle) -> Int []
+    todo("table-nv.tblstyle.overhead_per_column")
+
+// How many cells the style spends on the outer frame: 0 or 2.
+pub fn overhead_outer(s: TableStyle) -> Int []
+    todo("table-nv.tblstyle.overhead_outer")
+
+// The total overhead for a table of this many visible columns.
+//
+// `overhead_per_column * columns + overhead_outer`, published as one
+// call because that is the arithmetic every caller would otherwise
+// write and half of them would write with an off-by-one.
+pub fn overhead_total(s: TableStyle, columns: Int) -> Int []
+    todo("table-nv.tblstyle.overhead_total")
+
+// Whether the style draws anything at all around its cells.
+//
+// `false` for `plain()`, and the fast path a renderer takes for it.
+pub fn draws_rules(s: TableStyle) -> Bool []
+    todo("table-nv.tblstyle.draws_rules")

@@ -1,0 +1,113 @@
+// tblexport.nv — the same table, for something that is not a screen.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// WHY THIS IS IN THE PACKAGE AT ALL. Because the alternative is that
+// every program which prints a table also builds a second structure to
+// export one, and the two go out of step: a column added to the
+// display is a column missing from the `--csv` output, and nobody
+// notices until somebody's spreadsheet is short. One table, four
+// renderings, and the column list is the same list.
+//
+// AN EXPORT IS NOT A RENDER, and three things change. Widths do not
+// apply — a CSV cell is as long as it is. Padding is gone. And ANSI
+// escapes are STRIPPED rather than carried: a colour sequence in a CSV
+// field is a field that breaks whatever reads it, and there is no
+// terminal on the other end to interpret one.
+//
+// THE QUOTING IS RFC 4180's, WHICH IS std.csv's. A field is quoted
+// when it holds the delimiter, a quote, a carriage return or a
+// newline; a quote inside a quoted field is doubled. A table that
+// invented its own quoting would produce files that a spreadsheet
+// opens wrongly and never says so.
+//
+// WHAT IS NOT HERE, and each omission has a package that owns it: no
+// JSON — that is a shape decision (an array of objects? of arrays?
+// with the header where?) and belongs to the caller with std.json; no
+// HTML — that is html-nv's escaping and a caller's own template; and
+// no file writing of any kind, because writing is `[fs]` and this
+// package is `core`.
+
+use tblmodel
+
+// The table as comma-separated values, RFC 4180.
+//
+// Includes the header row when the table has one. Separator rows are
+// skipped, because a rule is a visual device and a blank line in a CSV
+// is a record somebody's parser will invent.
+//
+// ```novo
+// use tblexport
+// use tblmodel
+//
+// fn main() [io]
+//     let t = tblmodel.with_headers(["name", "size"])
+//     println(tblexport.to_csv(t))
+// ```
+pub fn to_csv(t: tblmodel.Table) -> Str []
+    todo("table-nv.tblexport.to_csv")
+
+// The table as tab-separated values.
+//
+// Not CSV with a different delimiter: TSV has no quoting at all, so a
+// tab or a newline inside a cell has nowhere to go. `to_tsv` replaces
+// each with a space and `tsv_is_lossless` is how a caller finds out
+// beforehand — because silently mangling a cell is worse than a caller
+// choosing CSV instead.
+pub fn to_tsv(t: tblmodel.Table) -> Str []
+    todo("table-nv.tblexport.to_tsv")
+
+// Whether a TSV export would lose anything: `false` when any cell
+// holds a tab or a newline.
+pub fn tsv_is_lossless(t: tblmodel.Table) -> Bool []
+    todo("table-nv.tblexport.tsv_is_lossless")
+
+// The table with a delimiter the caller picks, quoted RFC 4180's way.
+//
+// Semicolons for a European spreadsheet, pipes for a log format. The
+// quoting rule follows the delimiter, so a cell holding a semicolon is
+// quoted in a semicolon-delimited file and not in a comma-delimited
+// one.
+pub fn to_delimited(t: tblmodel.Table, delimiter: Int) -> Str []
+    todo("table-nv.tblexport.to_delimited")
+
+// Export into a buffer the caller owns, answering the written prefix.
+pub fn to_csv_into(out: [u8], t: tblmodel.Table) -> [u8] []
+    todo("table-nv.tblexport.to_csv_into")
+
+// How many bytes a CSV export will write.
+pub fn csv_len(t: tblmodel.Table) -> Int []
+    todo("table-nv.tblexport.csv_len")
+
+// One row as a CSV record, with no line ending.
+//
+// What a caller streaming a large table writes one at a time, so
+// nothing holds the whole document. The header is `header_record`.
+pub fn csv_record(t: tblmodel.Table, row: Int) -> Result<Str, tblmodel.TableError> []
+    todo("table-nv.tblexport.csv_record")
+
+// The header as a CSV record, or `""` where the table has none.
+pub fn header_record(t: tblmodel.Table) -> Str []
+    todo("table-nv.tblexport.header_record")
+
+// One field quoted for a delimiter, RFC 4180's way.
+//
+// Published because a caller assembling its own record around a
+// table's cells needs the same rule, and because two spellings of this
+// rule in one program is one spelling too many.
+pub fn quote_field(text: Str, delimiter: Int) -> Str []
+    todo("table-nv.tblexport.quote_field")
+
+// Whether a field needs quoting at all under a delimiter.
+pub fn needs_quoting(text: Str, delimiter: Int) -> Bool []
+    todo("table-nv.tblexport.needs_quoting")
+
+// The table as a markdown table.
+//
+// `tblrender.render` under `tblstyle.markdown()` is the same document;
+// this is the spelling for a caller that wants markdown and does not
+// care about styles, and it does the pipe escaping without being asked.
+// Hidden columns are hidden here too, which is the one place an export
+// agrees with the display rather than with the data.
+pub fn to_markdown(t: tblmodel.Table) -> Str []
+    todo("table-nv.tblexport.to_markdown")

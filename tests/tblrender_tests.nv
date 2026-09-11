@@ -1,0 +1,224 @@
+// tblrender_tests.nv — the lines, the presets, and the four exports.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: table-nv.<module>.<fn>`.
+// That is the expected result until the bodies land.
+//
+// THE ASSERTIONS ARE WHOLE LINES, on purpose. A renderer's bugs are
+// off-by-one bugs, and an assertion about a length would pass for a
+// table with the padding on the wrong side. Comparing the line a
+// person would see is the only check that catches both.
+
+use std.test
+use std.list
+use tblexport
+use tblmodel
+use tblrender
+use tblstyle
+use tblwidth
+
+@test
+fn test_a_table_renders_as_the_lines_a_person_sees() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["name", "size"])
+    match tblmodel.push_row(t, ["novo", "412"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            match tblwidth.solve_natural(one, w)
+                Err(_) => test.assert(false)
+                Ok(s)  =>
+                    test.case("the default ASCII preset, whole")
+                    let lines = tblrender.render_lines(one, s, w)
+                    test.assert(lines == ["+------+------+",
+                                          "| name | size |",
+                                          "+------+------+",
+                                          "| novo | 412  |",
+                                          "+------+------+"])
+
+                    test.case("and the one-string form joins them with newlines")
+                    test.assert(tblrender.render(one, s, w)
+                                == "+------+------+\n| name | size |\n"
+                                   + "+------+------+\n| novo | 412  |\n"
+                                   + "+------+------+")
+
+                    test.case("the line count agrees with the list")
+                    test.assert(tblrender.line_count(one, s, w) == 5)
+                    test.assert(list.len(lines) == 5)
+
+@test
+fn test_one_line_at_a_time_is_what_a_pager_asks_for() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["a"])
+    match tblmodel.push_row(t, ["1"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            match tblwidth.solve_natural(one, w)
+                Err(_) => test.assert(false)
+                Ok(s)  =>
+                    test.case("line 1 is the header, without the lines above it")
+                    test.assert(tblrender.render_line(one, s, 1, w) == Some("| a |"))
+
+                    test.case("and past the end is a terminator, not a blank")
+                    test.assert(tblrender.render_line(one, s, 99, w) == None)
+
+                    test.case("the rules can be asked for on their own")
+                    test.assert(tblrender.top_rule(one.style, s) == "+---+")
+                    test.assert(tblrender.mid_rule(one.style, s) == "+---+")
+                    test.assert(tblrender.bottom_rule(one.style, s) == "+---+")
+                    test.assert(tblrender.header_rule(one, s) == "+---+")
+
+                    test.case("and so can a row and the header")
+                    test.assert(tblrender.render_row(one, 0, s, w) == ["| 1 |"])
+                    test.assert(tblrender.render_header(one, s, w) == ["| a |"])
+
+                    test.case("rendering into a caller's buffer answers the prefix")
+                    let out: [u8] = []
+                    test.assert(list.len(tblrender.render_into(out, one, s, w)) >= 0)
+                    test.assert(tblrender.render_len(one, s, w) > 0)
+
+@test
+fn test_a_cell_is_padded_under_the_alignment_that_wins() [io]
+    let w = tblwidth.rule()
+    let plain = tblstyle.plain()
+    let col = tblmodel.aligned(tblmodel.column("n"), TableAlignRight)
+
+    test.case("the column's alignment applies to an ordinary cell")
+    test.assert(tblrender.render_cell(tblmodel.cell("7"), col, 4, plain, w) == "   7")
+
+    test.case("a cell's own alignment beats the column's")
+    let left = tblmodel.cell_aligned(tblmodel.cell("7"), TableAlignLeft)
+    test.assert(tblrender.render_cell(left, col, 4, plain, w) == "7   ")
+
+    test.case("a number cell right-aligns even in a left-aligned column")
+    let text_col = tblmodel.column("n")
+    match tblrender.effective_align(tblmodel.number_cell("7", 7.0), text_col)
+        TableAlignRight => test.assert(true)
+        _               => test.assert(false)
+
+    test.case("and an empty cell renders as the style's placeholder")
+    test.assert(tblrender.render_cell(tblmodel.empty_cell(), text_col, 3, plain, w)
+                == "-  ")
+
+@test
+fn test_the_presets_differ_where_a_reader_expects_them_to() [io]
+    test.case("ASCII stays below codepoint 127")
+    test.assert(tblstyle.ascii().border.cross == "+")
+    test.assert(tblstyle.ascii().border.horizontal == "-")
+
+    test.case("the Unicode presets are one cell per glyph")
+    test.assert(tblstyle.unicode_box().border.top_left == "┌")
+    test.assert(tblstyle.rounded().border.top_left == "╭")
+    test.assert(tblstyle.heavy().border.horizontal == "━")
+    test.assert(tblwidth.measure(tblstyle.unicode_box().border.cross,
+                                 tblwidth.rule()) == 1)
+
+    test.case("plain draws nothing and header_rule draws one line")
+    test.assert(tblstyle.draws_rules(tblstyle.plain()) == false)
+    test.assert(tblstyle.draws_rules(tblstyle.ascii()))
+    test.assert(tblstyle.header_rule().outer == false)
+
+    test.case("markdown carries its three rules as fields, not as a branch")
+    let md = tblstyle.markdown()
+    test.assert(md.escape_pipes)
+    test.assert(md.align_in_rule)
+    test.assert(md.border.vertical == "|")
+
+    test.case("and every modifier answers a new style")
+    test.assert(tblstyle.padded(tblstyle.ascii(), 2, 2).pad_left == 2)
+    test.assert(tblstyle.with_row_rules(tblstyle.ascii(), true).rules_between_rows)
+    test.assert(tblstyle.with_outer(tblstyle.ascii(), false).outer == false)
+    test.assert(tblstyle.with_empty(tblstyle.ascii(), "").empty == "")
+    test.assert(tblstyle.with_ellipsis(tblstyle.ascii(), "...").ellipsis == "...")
+    test.assert(tblstyle.border("+", "+", "+", "+", "+", "+", "+", "+", "+",
+                                "-", "|").cross == "+")
+
+@test
+fn test_a_markdown_render_carries_the_alignments_in_its_rule() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.styled(tblmodel.with_headers(["name", "size"]),
+                            tblstyle.markdown())
+    match tblmodel.set_column(t, 1, tblmodel.aligned(tblmodel.column("size"),
+                                                     TableAlignRight))
+        Err(_)            => test.assert(false)
+        Ok(aligned_table) =>
+            match tblmodel.push_row(aligned_table, ["novo", "412"])
+                Err(_)  => test.assert(false)
+                Ok(one) =>
+                    match tblwidth.solve_natural(one, w)
+                        Err(_) => test.assert(false)
+                        Ok(s)  =>
+                            test.case("the second column's rule says right-aligned")
+                            test.assert(tblrender.header_rule(one, s)
+                                        == "| ---- | ---: |")
+
+                            test.case("and there is no bottom rule at all")
+                            test.assert(tblrender.bottom_rule(one.style, s) == "")
+
+@test
+fn test_a_wrapped_row_is_taller_and_its_cells_align_vertically() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["id", "note"])
+    match tblmodel.set_column(t, 1, tblmodel.constrained(tblmodel.column("note"),
+                                                         TableWidthFixed(9)))
+        Err(_)     => test.assert(false)
+        Ok(narrow) =>
+            match tblmodel.push_row(narrow, ["1", "the quick brown"])
+                Err(_)  => test.assert(false)
+                Ok(one) =>
+                    match tblwidth.solve(one, 40, w)
+                        Err(_) => test.assert(false)
+                        Ok(s)  =>
+                            test.case("the row is two lines and the short cell is blank on the second")
+                            test.assert(tblrender.render_row(one, 0, s, w)
+                                        == ["| 1  | the quick |",
+                                            "|    | brown     |"])
+
+@test
+fn test_the_exports_are_the_same_columns() [io]
+    let t = tblmodel.with_headers(["name", "note"])
+    match tblmodel.push_row(t, ["novo", "a, with a comma"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            test.case("CSV quotes a field holding the delimiter, RFC 4180's way")
+            test.assert(tblexport.to_csv(one)
+                        == "name,note\nnovo,\"a, with a comma\"")
+            test.assert(tblexport.header_record(one) == "name,note")
+            match tblexport.csv_record(one, 0)
+                Ok(r)  => test.assert(r == "novo,\"a, with a comma\"")
+                Err(_) => test.assert(false)
+            test.assert(tblexport.csv_len(one) > 0)
+            let out: [u8] = []
+            test.assert(list.len(tblexport.to_csv_into(out, one)) >= 0)
+
+            test.case("the quoting rule follows the delimiter it was given")
+            test.assert(tblexport.needs_quoting("a, b", ',') == true)
+            test.assert(tblexport.needs_quoting("a, b", ';') == false)
+            test.assert(tblexport.quote_field("say \"hi\"", ',') == "\"say \"\"hi\"\"\"")
+            test.assert(tblexport.to_delimited(one, ';')
+                        == "name;note\nnovo;a, with a comma")
+
+            test.case("TSV cannot quote, so it says when it would lose something")
+            test.assert(tblexport.tsv_is_lossless(one))
+            test.assert(tblexport.to_tsv(one) == "name\tnote\nnovo\ta, with a comma")
+
+            test.case("and markdown is the same document the renderer draws")
+            let md = tblmodel.styled(one, tblstyle.markdown())
+            match tblwidth.solve_natural(md, tblwidth.rule())
+                Err(_) => test.assert(false)
+                Ok(s)  =>
+                    test.assert(tblexport.to_markdown(one)
+                                == tblrender.render(md, s, tblwidth.rule()))
+
+@test
+fn test_an_export_strips_the_colour_and_skips_the_separators() [io]
+    let t = tblmodel.with_headers(["level"])
+    match tblmodel.push_row(t, ["\e[31mERR\e[0m"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            let grouped = tblmodel.push_separator(one)
+
+            test.case("a colour escape in a CSV field is a field that breaks a reader")
+            test.assert(tblexport.to_csv(grouped) == "level\nERR")
+
+            test.case("and a rule is a visual device, not a record")
+            test.assert(tblmodel.row_count(grouped) == 1)

@@ -1,0 +1,206 @@
+// tblwidth_tests.nv — cells, not bytes, and not codepoints.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: table-nv.<module>.<fn>`.
+// That is the expected result until the bodies land.
+//
+// THE FIRST TEST IS THE WHOLE PACKAGE. `"世界"` is six bytes, two
+// codepoints and FOUR terminal cells, and a table sized by either of
+// the first two has a column that does not line up. Everything after
+// it is the second thing a naive table gets wrong — an ANSI escape
+// that costs bytes and no width — and the solver that distributes what
+// is left.
+
+use std.test
+use std.list
+use tblmodel
+use tblstyle
+use tblwidth
+
+@test
+fn test_a_column_is_counted_in_cells() [io]
+    let w = tblwidth.rule()
+
+    test.case("ASCII is one cell per byte, which is why the bug hides")
+    test.assert(tblwidth.measure("hello", w) == 5)
+
+    test.case("an ideograph is two cells and three bytes")
+    test.assert(tblwidth.measure("世界", w) == 4)
+
+    test.case("a combining mark is none")
+    test.assert(tblwidth.measure("e\u{0301}", w) == 1)
+
+    test.case("and an emoji is two, however many codepoints it holds")
+    test.assert(tblwidth.measure("👩\u{200D}👩\u{200D}👧", w) == 2)
+
+    test.case("the ambiguous class is one cell, or two for a CJK terminal")
+    test.assert(tblwidth.measure("§", w) == 1)
+    test.assert(tblwidth.measure("§", tblwidth.rule_cjk()) == 2)
+
+@test
+fn test_an_ansi_escape_costs_no_width() [io]
+    let w = tblwidth.rule()
+    let red = "\e[31mERR\e[0m"
+
+    test.case("three cells, fourteen bytes")
+    test.assert(tblwidth.measure(red, w) == 3)
+
+    test.case("and the fast path for text that has none")
+    test.assert(tblwidth.has_escapes(red))
+    test.assert(tblwidth.has_escapes("plain") == false)
+    test.assert(tblwidth.measure_plain("plain", w) == 5)
+
+    test.case("an export strips them, because a CSV has no terminal")
+    test.assert(tblwidth.strip_escapes(red) == "ERR")
+
+@test
+fn test_truncating_closes_what_it_cut_open() [io]
+    let w = tblwidth.rule()
+
+    test.case("a plain string truncates to the ellipsis's own width")
+    test.assert(tblwidth.truncate("abcdefgh", 5, w, "…") == "abcd…")
+
+    test.case("and the prefix that fits is answered as a byte offset")
+    test.assert(tblwidth.fit_prefix("abcdefgh", 4, w) == 4)
+
+    test.case("a cut never splits a cluster in half")
+    // Half an emoji is a replacement character on the screen.
+    test.assert(tblwidth.fit_prefix("a👩\u{200D}👧", 2, w) == 1)
+
+    test.case("and a cut inside a colour leaves a reset behind it")
+    // Without this the terminal stays red for every row after it.
+    test.assert(tblwidth.truncate("\e[31mERROR\e[0m", 4, w, "…")
+                == "\e[31mERR…\e[0m")
+
+@test
+fn test_padding_never_truncates() [io]
+    let w = tblwidth.rule()
+
+    test.case("the three alignments")
+    test.assert(tblwidth.pad("ab", 6, w, TableAlignLeft) == "ab    ")
+    test.assert(tblwidth.pad("ab", 6, w, TableAlignRight) == "    ab")
+    test.assert(tblwidth.pad("ab", 6, w, TableAlignCenter) == "  ab  ")
+
+    test.case("and a string already that wide comes back untouched")
+    // The two decisions have different callers, and merging them is
+    // how a column silently loses content.
+    test.assert(tblwidth.pad("abcdefgh", 4, w, TableAlignLeft) == "abcdefgh")
+
+    test.case("padding counts cells, so a CJK cell pads by two fewer")
+    test.assert(tblwidth.pad("世", 5, w, TableAlignLeft) == "世   ")
+
+@test
+fn test_a_cell_wraps_at_a_width_and_keeps_its_colour() [io]
+    let w = tblwidth.rule()
+
+    test.case("wrapping answers lines")
+    test.assert(tblwidth.wrap_cell("the quick brown fox", 10, w)
+                == ["the quick", "brown fox"])
+    test.assert(tblwidth.cell_height("the quick brown fox", 10, w) == 2)
+
+    test.case("a cell that fits is one line")
+    test.assert(tblwidth.cell_height("short", 10, w) == 1)
+
+    test.case("and a style opened on one line is re-opened on the next")
+    test.assert(tblwidth.wrap_cell("\e[31mthe quick brown fox\e[0m", 10, w)
+                == ["\e[31mthe quick\e[0m", "\e[31mbrown fox\e[0m"])
+
+@test
+fn test_the_natural_and_minimum_widths_are_what_the_solver_starts_from() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["name", "description"])
+    match tblmodel.push_row(t, ["novo", "a systems language"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            test.case("the natural width is the widest cell, header included")
+            test.assert(tblwidth.natural_width(one, 0, w) == 4)
+            test.assert(tblwidth.natural_width(one, 1, w) == 18)
+
+            test.case("the minimum is the widest single word")
+            test.assert(tblwidth.minimum_width(one, 1, w) == 11)
+
+            test.case("and the narrowest total adds the style's own overhead")
+            test.assert(tblwidth.minimum_total(one, w)
+                        > tblwidth.minimum_width(one, 0, w)
+                          + tblwidth.minimum_width(one, 1, w))
+
+@test
+fn test_the_solver_distributes_what_is_left() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["id", "title", "note"])
+    match tblmodel.push_row(t, ["1", "a short title", "a rather longer note here"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            test.case("with no total, every column is its natural width")
+            match tblwidth.solve_natural(one, w)
+                Err(_) => test.assert(false)
+                Ok(s)  =>
+                    test.assert(list.len(s.columns) == 3)
+                    test.assert(s.columns[0] == 2)
+                    test.assert(s.exact)
+                    test.assert(s.total > s.columns[0] + s.columns[1] + s.columns[2])
+
+            test.case("a fixed column takes exactly what it asked for")
+            match tblmodel.set_column(one, 0,
+                                      tblmodel.constrained(tblmodel.column("id"),
+                                                           TableWidthFixed(6)))
+                Err(_)    => test.assert(false)
+                Ok(fixed) =>
+                    match tblwidth.solve(fixed, 60, w)
+                        Ok(s)  =>
+                            test.assert(s.columns[0] == 6)
+                            test.assert(s.total <= 60)
+                        Err(_) => test.assert(false)
+
+@test
+fn test_a_percentage_needs_a_total_and_a_narrow_table_is_refused() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.push_column(tblmodel.table(),
+                                 tblmodel.constrained(tblmodel.column("wide"),
+                                                      TableWidthPercent(50)))
+
+    test.case("a percentage of nothing is not a width")
+    match tblwidth.solve(t, 0, w)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+    test.case("and a total the constraints cannot fit names both numbers")
+    let fixed = tblmodel.push_column(tblmodel.table(),
+                                     tblmodel.constrained(tblmodel.column("x"),
+                                                          TableWidthFixed(40)))
+    match tblwidth.solve(fixed, 10, w)
+        Ok(_)  => test.assert(false)
+        Err(e) =>
+            match e
+                TableTooNarrow(needed, available) =>
+                    test.assert(needed > 40)
+                    test.assert(available == 10)
+                _                                 => test.assert(false)
+
+@test
+fn test_the_heights_are_what_a_pager_asks_for() [io]
+    let w = tblwidth.rule()
+    let t = tblmodel.with_headers(["note"])
+    match tblmodel.push_row(t, ["the quick brown fox jumps over the lazy dog"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            match tblmodel.set_column(one, 0,
+                                      tblmodel.constrained(tblmodel.column("note"),
+                                                           TableWidthFixed(12)))
+                Err(_)     => test.assert(false)
+                Ok(narrow) =>
+                    match tblwidth.solve(narrow, 40, w)
+                        Err(_) => test.assert(false)
+                        Ok(s)  =>
+                            test.case("a row that wrapped is more than one line tall")
+                            test.assert(tblwidth.row_height(narrow, 0, s, w) == 4)
+
+                            test.case("and the whole table counts its rules too")
+                            test.assert(tblwidth.total_height(narrow, s, w)
+                                        > tblwidth.row_height(narrow, 0, s, w))
+
+    test.case("the style's overhead is published so nobody adds it up twice")
+    let s = tblstyle.ascii()
+    test.assert(tblstyle.overhead_per_column(s) == 3)
+    test.assert(tblstyle.overhead_outer(s) == 2)
+    test.assert(tblstyle.overhead_total(s, 3) == 11)

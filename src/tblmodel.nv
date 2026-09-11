@@ -1,0 +1,324 @@
+// tblmodel.nv — a table as a value.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// A TABLE IS DATA, AND RENDERING IS A FUNCTION OF IT. Nothing here
+// prints, measures a terminal, or holds a writer: a `Table` is a
+// header, some rows and some column specifications, and every question
+// about how it LOOKS is `tblwidth`'s or `tblrender`'s. That separation
+// is what lets the same table go to a terminal, a log file, a markdown
+// document and a CSV export without being rebuilt.
+//
+// CELLS ARE TYPED, AND THE TYPE IS NOT THE VALUE. `TableCell` carries
+// text and a `TableCellKind` that says what the text MEANT — a number,
+// a date, a plain string. The rendering does not reinterpret it; the
+// kind decides the default alignment (numbers right, text left) and
+// gives a sorter something to compare on. Keeping the text as text is
+// deliberate: a table's job is to lay out what a program already
+// formatted, and a table that reformatted numbers would be a second
+// place for `%.2f` to live.
+//
+// EVERY ROW HAS THE SAME NUMBER OF CELLS, and `push_row` refuses one
+// that does not. A ragged table renders as a table with a hole in it,
+// and the hole appears three functions away from the mistake;
+// `TableRowArity` names both counts at the call that made it.
+//
+// SPANS ARE NOT HERE, and the omission is the design rather than a
+// gap. A cell that spans columns makes the width solver a constraint
+// system instead of an allocation, it makes CSV export ambiguous, and
+// it is wanted by roughly one caller in fifty. `comfy-table` has them;
+// this does not, and the README says so where somebody can read it
+// before they depend on the package.
+
+use tblstyle
+
+// What a cell's text was before it was text.
+//
+// Not a union of values: the text is already formatted, and this says
+// what it was formatted FROM. Two uses, both of them layout: the
+// default alignment, and a stable sort that compares numbers as
+// numbers.
+pub enum TableCellKind
+    TableCellText
+    // A number, so the column right-aligns by default and a sort
+    // compares numerically. The numeric value is carried beside the
+    // text because re-parsing the text would need to know which
+    // formatter produced it.
+    TableCellNumber(value: Float)
+    // A timestamp, as a sortable integer the caller chose the meaning
+    // of — an epoch second, a day number. Right-aligned, like a
+    // number.
+    TableCellTime(value: Int)
+    // Nothing at all. Renders as the style's `empty` placeholder
+    // rather than as a blank, because a missing value and an empty
+    // string are different facts and a reader of the table should be
+    // able to tell them apart.
+    TableCellEmpty
+
+// One cell.
+pub struct TableCell
+    // The text, already formatted, possibly carrying ANSI escapes.
+    text: Str
+    kind: TableCellKind
+    // An alignment that overrides the column's, or `?` to take the
+    // column's.
+    align: ?TableAlign
+    // Whether this cell's text may be wrapped. `false` pins a cell to
+    // one line and lets it overflow its column, which is what a URL or
+    // a hash wants — breaking one across two lines makes it
+    // unselectable.
+    wrap: Bool
+
+// One row.
+pub struct TableRow
+    cells: [TableCell]
+    // Whether this row is a separator rather than content. A
+    // separator carries no cells and renders as the style's mid-rule,
+    // which is how a caller groups rows without a second table.
+    is_separator: Bool
+
+// How a cell sits in a column wider than its text.
+pub enum TableAlign
+    TableAlignLeft
+    TableAlignRight
+    TableAlignCenter
+
+// How a cell sits in a row taller than its text — which happens as
+// soon as one cell in the row wraps to two lines.
+pub enum TableVAlign
+    TableVTop
+    TableVMiddle
+    TableVBottom
+
+// One column's specification.
+pub struct TableColumn
+    // The header text. `""` for a table with no header, which is
+    // `has_header` on the table rather than a special value here.
+    header: Str
+    // The alignment for the column's cells, unless a cell overrides
+    // it.
+    align: TableAlign
+    // The alignment for the header itself, which is often not the
+    // column's: a column of right-aligned numbers usually wants a
+    // right-aligned header and sometimes a centred one.
+    header_align: TableAlign
+    // What the solver is allowed to do with this column's width.
+    constraint: TableWidth
+    // Whether this column's cells may be wrapped, unless a cell says
+    // otherwise.
+    wrap: Bool
+    // Whether the column is rendered at all. A hidden column stays in
+    // every row, so a caller can toggle it without rebuilding the
+    // table, and it is excluded from the width solve.
+    hidden: Bool
+
+// What a column's width is allowed to be.
+//
+// A value rather than two `Int` fields, because "at most 40" and
+// "exactly 40" and "a quarter of the terminal" are three different
+// instructions to the solver and a pair of numbers cannot tell them
+// apart.
+pub enum TableWidth
+    // As wide as the widest cell in it, after the other constraints
+    // have taken what they need.
+    TableWidthAuto
+    // Exactly this many cells. Content longer than it wraps, or is
+    // truncated where the column does not wrap.
+    TableWidthFixed(columns: Int)
+    // At least this many, and otherwise automatic.
+    TableWidthMin(columns: Int)
+    // At most this many, and otherwise automatic.
+    TableWidthMax(columns: Int)
+    // Between the two, inclusive. `low > high` is `TableWidthConflict`
+    // at solve time rather than at construction, because a caller may
+    // build a constraint before it knows the terminal.
+    TableWidthRange(low: Int, high: Int)
+    // This percentage of the total width the caller passed to the
+    // solver. `1 ..= 100`; anything else is `TableBadPercent`. Useless
+    // without a total, and `tblwidth.solve` says so rather than
+    // guessing 80.
+    TableWidthPercent(percent: Int)
+
+// A whole table.
+pub struct Table
+    columns: [TableColumn]
+    rows: [TableRow]
+    // Whether the header row is rendered. A table with headers that
+    // does not render them still sizes its columns against them, which
+    // is usually not what a caller wants — `set_header` with empty
+    // strings is the other arrangement.
+    has_header: Bool
+    style: tblstyle.TableStyle
+    // How cells sit in a row that grew because one of them wrapped.
+    valign: TableVAlign
+
+// What can be wrong with a table.
+pub enum TableError
+    // A row with a different number of cells from the table's columns.
+    TableRowArity(expected: Int, found: Int)
+    // A percentage outside `1 ..= 100`.
+    TableBadPercent(percent: Int)
+    // A column index nothing addresses.
+    TableBadColumn(index: Int)
+    // A row index nothing addresses.
+    TableBadRow(index: Int)
+    // A `TableWidthRange` whose low bound exceeds its high one.
+    TableWidthConflict(column: Int, low: Int, high: Int)
+    // The constraints cannot be satisfied inside the total width the
+    // caller gave: the fixed and minimum columns plus the borders
+    // already exceed it. The two numbers are carried, because "too
+    // narrow" without them is not something a caller can act on.
+    TableTooNarrow(needed: Int, available: Int)
+
+// An empty table with no columns.
+//
+// ```novo
+// use tblmodel
+//
+// fn main() [io]
+//     let t = tblmodel.table()
+//     println(str.from_int(tblmodel.column_count(t)))
+// ```
+pub fn table() -> Table []
+    todo("table-nv.tblmodel.table")
+
+// A table with these headers, every column automatic and
+// left-aligned.
+//
+// The constructor nine callers in ten use, and the one the `novo` CLI
+// would use everywhere it prints a listing today.
+pub fn with_headers(headers: [Str]) -> Table []
+    todo("table-nv.tblmodel.with_headers")
+
+// Add a column.
+pub fn push_column(t: Table, c: TableColumn) -> Table []
+    todo("table-nv.tblmodel.push_column")
+
+// A column specification with a header and everything else
+// defaulted.
+pub fn column(header: Str) -> TableColumn []
+    todo("table-nv.tblmodel.column")
+
+// The same column with an alignment.
+pub fn aligned(c: TableColumn, a: TableAlign) -> TableColumn []
+    todo("table-nv.tblmodel.aligned")
+
+// The same column with a width constraint.
+pub fn constrained(c: TableColumn, w: TableWidth) -> TableColumn []
+    todo("table-nv.tblmodel.constrained")
+
+// Add a row of already-formatted strings.
+//
+// Refuses a row whose length does not match the column count, naming
+// both numbers. Every cell takes `TableCellText` and the column's own
+// alignment; `push_cells` is the form for a caller that has kinds.
+pub fn push_row(t: Table, cells: [Str]) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.push_row")
+
+// Add a row of typed cells.
+pub fn push_cells(t: Table, cells: [TableCell]) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.push_cells")
+
+// Add a separator row.
+//
+// How a caller groups rows without building a second table. It renders
+// as the style's mid-rule and is skipped by every export.
+pub fn push_separator(t: Table) -> Table []
+    todo("table-nv.tblmodel.push_separator")
+
+// A text cell.
+pub fn cell(text: Str) -> TableCell []
+    todo("table-nv.tblmodel.cell")
+
+// A cell carrying a number, so the column right-aligns and a sort
+// compares numerically. The text is the caller's own formatting and is
+// never reinterpreted.
+pub fn number_cell(text: Str, value: Float) -> TableCell []
+    todo("table-nv.tblmodel.number_cell")
+
+// A cell carrying a sortable timestamp, with the caller's own
+// formatting as its text.
+pub fn time_cell(text: Str, value: Int) -> TableCell []
+    todo("table-nv.tblmodel.time_cell")
+
+// The empty cell, which renders as the style's placeholder rather than
+// as a blank.
+pub fn empty_cell() -> TableCell []
+    todo("table-nv.tblmodel.empty_cell")
+
+// The same cell with its own alignment, overriding the column's.
+pub fn cell_aligned(c: TableCell, a: TableAlign) -> TableCell []
+    todo("table-nv.tblmodel.cell_aligned")
+
+// The same cell pinned to one line, so it overflows rather than
+// wrapping. What a URL or a hash wants.
+pub fn cell_nowrap(c: TableCell) -> TableCell []
+    todo("table-nv.tblmodel.cell_nowrap")
+
+// How many columns the table has, hidden ones included.
+pub fn column_count(t: Table) -> Int []
+    todo("table-nv.tblmodel.column_count")
+
+// How many content rows the table has, separators excluded.
+pub fn row_count(t: Table) -> Int []
+    todo("table-nv.tblmodel.row_count")
+
+// One cell, by row and column, or a refusal naming which index was
+// out of range.
+pub fn cell_at(t: Table, row: Int, column: Int) -> Result<TableCell, TableError> []
+    todo("table-nv.tblmodel.cell_at")
+
+// The table with one cell replaced.
+pub fn set_cell(t: Table, row: Int, column: Int, c: TableCell) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.set_cell")
+
+// The table with a column's specification replaced.
+pub fn set_column(t: Table, index: Int, c: TableColumn) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.set_column")
+
+// The table with a column hidden or shown.
+//
+// A hidden column keeps its cells, so a caller toggling one does not
+// rebuild the table and does not lose data it may want back.
+pub fn set_hidden(t: Table, index: Int, hidden: Bool) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.set_hidden")
+
+// The table with a style.
+pub fn styled(t: Table, s: tblstyle.TableStyle) -> Table []
+    todo("table-nv.tblmodel.styled")
+
+// The table sorted by a column, ascending or descending.
+//
+// Numbers and times compare on their carried values and text compares
+// bytewise — which is not a collation and does not pretend to be: a
+// locale-aware sort is a comparison function a caller supplies to its
+// own sort before building the table. Separator rows keep their
+// position relative to the rows above them, which is what makes
+// grouping survive a sort.
+pub fn sorted_by(t: Table, column: Int, ascending: Bool) -> Result<Table, TableError> []
+    todo("table-nv.tblmodel.sorted_by")
+
+// Every column's constraint checked, as a list of refusals.
+//
+// The check to run before a solve, so a caller can report all of a
+// table's constraint mistakes at once. An empty list is a table that
+// will solve for some width.
+pub fn check(t: Table) -> [TableError] []
+    todo("table-nv.tblmodel.check")
+
+// A refusal says what it is, in one line, for a person.
+//
+// The `Error` impl rather than a free function, because `Result`
+// requires it: a payload that does not implement `Error` is refused at
+// the signature (SPEC § 3.4), and every other package on this grid
+// answers the same way.
+//
+// ```novo
+// use tblmodel
+//
+// fn main() [io]
+//     println(TableRowArity(3, 2).message())
+// ```
+impl Error for TableError
+    fn message(self) -> Str
+        todo("table-nv.TableError.message")

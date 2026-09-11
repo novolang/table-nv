@@ -1,0 +1,229 @@
+// tblmodel_tests.nv — the table as a value, and what it refuses.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: table-nv.<module>.<fn>`.
+// That is the expected result until the bodies land.
+//
+// WHAT IS WORTH ASSERTING ABOUT A DATA STRUCTURE is what it will not
+// let a caller build. A ragged row, a percentage of 140, an index off
+// the end — each of those renders as a table with something wrong in
+// it three functions away from the mistake, and each of them is
+// refused here with both numbers named.
+
+use std.test
+use std.list
+use tblmodel
+use tblstyle
+
+@test
+fn test_a_table_is_columns_and_rows() [io]
+    test.case("an empty table has neither")
+    let e = tblmodel.table()
+    test.assert(tblmodel.column_count(e) == 0)
+    test.assert(tblmodel.row_count(e) == 0)
+
+    test.case("headers make the columns")
+    let t = tblmodel.with_headers(["name", "size", "modified"])
+    test.assert(tblmodel.column_count(t) == 3)
+    test.assert(t.has_header)
+
+    test.case("and a row of strings goes in as text cells")
+    match tblmodel.push_row(t, ["novo.toml", "412", "today"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            test.assert(tblmodel.row_count(one) == 1)
+            match tblmodel.cell_at(one, 0, 0)
+                Ok(c)  => test.assert(c.text == "novo.toml")
+                Err(_) => test.assert(false)
+
+@test
+fn test_a_ragged_row_is_refused_where_it_was_written() [io]
+    let t = tblmodel.with_headers(["a", "b", "c"])
+
+    test.case("both counts are named, at the call that made the mistake")
+    match tblmodel.push_row(t, ["1", "2"])
+        Ok(_)  => test.assert(false)
+        Err(e) =>
+            match e
+                TableRowArity(expected, found) =>
+                    test.assert(expected == 3)
+                    test.assert(found == 2)
+                _                              => test.assert(false)
+            test.assert(e.message() != "")
+
+    test.case("and so is a row with one too many")
+    match tblmodel.push_row(t, ["1", "2", "3", "4"])
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_cell_carries_what_its_text_was_formatted_from() [io]
+    test.case("a number cell keeps the caller's own formatting")
+    let c = tblmodel.number_cell("1 234.50", 1234.5)
+    test.assert(c.text == "1 234.50")
+    match c.kind
+        TableCellNumber(v) => test.assert(v == 1234.5)
+        _                  => test.assert(false)
+
+    test.case("a time cell carries a sortable integer beside its text")
+    let d = tblmodel.time_cell("2026-09-11", 20708)
+    match d.kind
+        TableCellTime(v) => test.assert(v == 20708)
+        _                => test.assert(false)
+
+    test.case("an empty cell is not an empty string")
+    let blank = tblmodel.empty_cell()
+    match blank.kind
+        TableCellEmpty => test.assert(true)
+        _              => test.assert(false)
+    match tblmodel.cell("").kind
+        TableCellText => test.assert(true)
+        _             => test.assert(false)
+
+    test.case("a cell may override its column's alignment and its wrapping")
+    let aligned_cell = tblmodel.cell_aligned(tblmodel.cell("x"), TableAlignRight)
+    test.assert(aligned_cell.align == Some(TableAlignRight))
+    test.assert(tblmodel.cell_nowrap(tblmodel.cell("x")).wrap == false)
+
+@test
+fn test_a_column_is_built_by_composing_its_choices() [io]
+    test.case("a column starts automatic and left-aligned")
+    let c = tblmodel.column("size")
+    test.assert(c.header == "size")
+    match c.align
+        TableAlignLeft => test.assert(true)
+        _              => test.assert(false)
+    match c.constraint
+        TableWidthAuto => test.assert(true)
+        _              => test.assert(false)
+
+    test.case("and the two modifiers compose")
+    let sized = tblmodel.constrained(tblmodel.aligned(c, TableAlignRight),
+                                     TableWidthMax(12))
+    match sized.align
+        TableAlignRight => test.assert(true)
+        _               => test.assert(false)
+    match sized.constraint
+        TableWidthMax(n) => test.assert(n == 12)
+        _                => test.assert(false)
+
+    test.case("and a column can be added to a table")
+    let t = tblmodel.push_column(tblmodel.table(), sized)
+    test.assert(tblmodel.column_count(t) == 1)
+
+@test
+fn test_the_constraints_are_checked_all_at_once() [io]
+    // A person fixing three mistakes should be told about three.
+    test.case("a percentage outside 1..100 and a backwards range are both refused")
+    let bad = tblmodel.push_column(
+        tblmodel.push_column(tblmodel.table(),
+                             tblmodel.constrained(tblmodel.column("a"),
+                                                  TableWidthPercent(140))),
+        tblmodel.constrained(tblmodel.column("b"), TableWidthRange(30, 10)))
+    let problems = tblmodel.check(bad)
+    test.assert(list.len(problems) == 2)
+    match problems[0]
+        TableBadPercent(p) => test.assert(p == 140)
+        _                  => test.assert(false)
+    match problems[1]
+        TableWidthConflict(column, low, high) =>
+            test.assert(column == 1)
+            test.assert(low == 30)
+            test.assert(high == 10)
+        _                                     => test.assert(false)
+
+    test.case("and a table whose constraints hold has nothing to report")
+    test.assert(list.len(tblmodel.check(tblmodel.with_headers(["a"]))) == 0)
+
+@test
+fn test_an_index_off_the_end_names_which_one() [io]
+    let t = tblmodel.with_headers(["a"])
+
+    test.case("a column index")
+    match tblmodel.set_column(t, 4, tblmodel.column("b"))
+        Ok(_)  => test.assert(false)
+        Err(e) =>
+            match e
+                TableBadColumn(index) => test.assert(index == 4)
+                _                     => test.assert(false)
+
+    test.case("a row index")
+    match tblmodel.set_cell(t, 9, 0, tblmodel.cell("x"))
+        Ok(_)  => test.assert(false)
+        Err(e) =>
+            match e
+                TableBadRow(index) => test.assert(index == 9)
+                _                  => test.assert(false)
+
+    test.case("and hiding a column that is not there")
+    match tblmodel.set_hidden(t, 7, true)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_hidden_column_keeps_its_cells() [io]
+    // So a caller toggling one does not rebuild the table and does not
+    // lose data it may want back.
+    let t = tblmodel.with_headers(["name", "hash"])
+    match tblmodel.push_row(t, ["a", "deadbeef"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            match tblmodel.set_hidden(one, 1, true)
+                Err(_)     => test.assert(false)
+                Ok(hidden) =>
+                    test.case("the column is still there and still holds its cell")
+                    test.assert(tblmodel.column_count(hidden) == 2)
+                    match tblmodel.cell_at(hidden, 0, 1)
+                        Ok(c)  => test.assert(c.text == "deadbeef")
+                        Err(_) => test.assert(false)
+
+                    test.case("and showing it again is one call")
+                    match tblmodel.set_hidden(hidden, 1, false)
+                        Ok(shown) => test.assert(shown.columns[1].hidden == false)
+                        Err(_)    => test.assert(false)
+
+@test
+fn test_a_sort_compares_numbers_as_numbers() [io]
+    // The whole reason a cell carries a value beside its text: "10"
+    // sorts before "9" as a string and after it as a number.
+    let t = tblmodel.with_headers(["n"])
+    match tblmodel.push_cells(t, [tblmodel.number_cell("9", 9.0)])
+        Err(_) => test.assert(false)
+        Ok(a)  =>
+            match tblmodel.push_cells(a, [tblmodel.number_cell("10", 10.0)])
+                Err(_) => test.assert(false)
+                Ok(b)  =>
+                    test.case("ascending puts 9 first")
+                    match tblmodel.sorted_by(b, 0, true)
+                        Err(_) => test.assert(false)
+                        Ok(up) =>
+                            match tblmodel.cell_at(up, 0, 0)
+                                Ok(c)  => test.assert(c.text == "9")
+                                Err(_) => test.assert(false)
+
+                    test.case("and descending puts 10 first")
+                    match tblmodel.sorted_by(b, 0, false)
+                        Err(_)   => test.assert(false)
+                        Ok(down) =>
+                            match tblmodel.cell_at(down, 0, 0)
+                                Ok(c)  => test.assert(c.text == "10")
+                                Err(_) => test.assert(false)
+
+@test
+fn test_a_separator_is_a_row_with_no_cells() [io]
+    test.case("how a caller groups rows without a second table")
+    let t = tblmodel.with_headers(["a"])
+    match tblmodel.push_row(t, ["1"])
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            let grouped = tblmodel.push_separator(one)
+            // A separator is not content, so the row count does not
+            // move — which is what keeps an export from inventing a
+            // blank record.
+            test.assert(tblmodel.row_count(grouped) == 1)
+            test.assert(list.len(grouped.rows) == 2)
+            test.assert(grouped.rows[1].is_separator)
+
+    test.case("and a style is attached to the table rather than passed around")
+    let styled_table = tblmodel.styled(tblmodel.table(), tblstyle.markdown())
+    test.assert(styled_table.style.escape_pipes)
