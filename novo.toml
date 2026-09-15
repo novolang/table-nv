@@ -1,6 +1,6 @@
 [package]
 name        = "table-nv"
-version     = "0.0.1"
+version     = "0.0.2"
 description = "Text tables that line up: columns sized against unicode-nv's display widths so CJK and emoji are counted in cells rather than in codepoints, ANSI colour that costs no width, cells wrapped through textwrap-nv, width constraints as values a caller composes, border presets from ASCII to markdown, and a render into a caller's buffer.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
