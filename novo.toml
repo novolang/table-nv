@@ -1,6 +1,6 @@
 [package]
 name        = "table-nv"
-version     = "0.0.2"
+version     = "0.0.3"
 description = "Text tables that line up: columns sized against unicode-nv's display widths so CJK and emoji are counted in cells rather than in codepoints, ANSI colour that costs no width, cells wrapped through textwrap-nv, width constraints as values a caller composes, border presets from ASCII to markdown, and a render into a caller's buffer.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
@@ -56,6 +56,6 @@ novo        = ">= 0.8.9"
 # every row after the first one; `vtparse` is the state machine that
 # tells the two apart, and writing a second one here would be writing a
 # second one wrongly.
-unicode-nv  = "^0.0.1"
-textwrap-nv = "^0.0.1"
-ansi-nv     = "^0.0.1"
+unicode-nv  = "^0.1.3"
+textwrap-nv = "^0.1.2"
+ansi-nv     = "^0.2.2"
